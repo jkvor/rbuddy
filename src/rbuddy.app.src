@@ -1,0 +1,9 @@
+{application, rbuddy,
+ [
+  {description, "An Erlang proxy between redis master/slave"},
+  {vsn, "0.1"},
+  {registered, []},
+  {applications, [kernel, stdlib, sasl]},
+  {mod, {rbuddy_app, []}},
+  {env, []}
+ ]}.
