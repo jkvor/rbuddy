@@ -24,7 +24,7 @@
 -behaviour(gen_nb_server).
 
 %% API
--export([start_link/0, active_slave/0, standby_slave/0]).
+-export([start_link/0]).
 
 %% gen_server callbacks
 -export([init/2,
@@ -36,19 +36,13 @@
          terminate/2,
          code_change/3]).
 
--record(state, {listener, slave, standby}).
+-record(state, {listener}).
 
 %%====================================================================
 %% API functions
 %%====================================================================
 start_link() ->
     gen_nb_server:start_link({local, ?MODULE}, ?MODULE, []).
-
-active_slave() ->
-    gen_server:call(?MODULE, active_slave, 10000).
-
-standby_slave() ->
-    gen_server:call(?MODULE, standby_slave, 10000).
 
 %%====================================================================
 %% gen_server callbacks
@@ -64,10 +58,7 @@ sock_opts() ->
 new_connection(_Host, _Port, Client, State) ->
     MyState = gen_nb_server:get_cb_state(State),
     Listener = MyState#state.listener,
-    Slave = MyState#state.slave,
-    Standby = MyState#state.standby,
-    Master = get_master(),
-    case rbuddy_tcp_proxy_sup:start_child(Client, Listener, Slave, Standby, Master) of
+    case rbuddy_tcp_proxy_sup:start_child(Client, Listener) of
         {ok, _Pid} ->
             ok;
         Error ->
@@ -75,14 +66,6 @@ new_connection(_Host, _Port, Client, State) ->
             gen_tcp:close(Client)
     end, 
     {ok, State}.
-
-handle_call(active_slave, _From, State) ->
-    MyState = gen_nb_server:get_cb_state(State),
-    {reply, MyState#state.slave, State};
-
-handle_call(standby_slave, _From, State) ->
-    MyState = gen_nb_server:get_cb_state(State),
-    {reply, MyState#state.standby, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ignore, State}.
@@ -95,27 +78,9 @@ handle_info(timeout, State) ->
     {Host, Port} = MyState#state.listener,
     case gen_nb_server:add_listen_socket({Host, Port}, State) of
         {ok, State1} ->
-            erlang:send(self(), notify_slave),
+            error_logger:info_msg("Listening on ~s:~w~n", [Host, Port]),
+            rbuddy:issue_slave_of_cmd(),
             {noreply, State1};
-        Error ->
-            {stop, Error, State}
-    end;
-
-handle_info(notify_slave, State) ->
-    MyState = gen_nb_server:get_cb_state(State),
-    [{Host, Port}, Standby] = get_slaves(),
-    case gen_tcp:connect(Host, Port, [binary, {packet, raw}, {active, false}]) of
-        {ok, Socket} ->
-            {LHost, LPort} = MyState#state.listener,
-            case rbuddy_redis:ok_cmd(Socket, rbuddy_redis_proto:slave_of(LHost, LPort)) of
-                ok ->
-                    gen_tcp:close(Socket),
-                    MyState1 = MyState#state{slave={Host, Port}, standby=Standby},
-                    State1 = gen_nb_server:store_cb_state(MyState1, State),
-                    {noreply, State1};
-                Error ->
-                    {stop, Error, State}
-            end;
         Error ->
             {stop, Error, State}
     end;
@@ -138,23 +103,5 @@ get_listener() ->
             {Host, Port};
         Other ->
             error_logger:error_msg("Could not read rbuddy app var ~p~n", [Other]), 
-            exit(invalid_app_var)
-    end.
-
-get_master() ->
-    case rbuddy_app:app_var(master) of
-        {Host, Port} when is_list(Host), is_integer(Port) ->
-            {Host, Port};
-        Other ->
-            error_logger:error_msg("Could not read master app var ~p~n", [Other]), 
-            exit(invalid_app_var)
-    end.
-
-get_slaves() ->
-    case rbuddy_app:app_var(slaves) of
-        [{H1,P1},{H2,P2}] when is_list(H1), is_integer(P1), is_list(H2), is_integer(P2) ->
-            [{H1, P1}, {H2, P2}];
-        Other ->
-            error_logger:error_msg("Could not read slaves app var ~p~n", [Other]), 
             exit(invalid_app_var)
     end.

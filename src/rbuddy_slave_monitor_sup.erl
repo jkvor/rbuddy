@@ -23,7 +23,7 @@
 -module(rbuddy_slave_monitor_sup).
 -behaviour(supervisor).
 
--export([start_link/0, init/1, start_child/2]).
+-export([start_link/0, init/1, start_child/1]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
@@ -33,5 +33,5 @@ init([]) ->
         {rbuddy_slave_monitor, {rbuddy_slave_monitor, start_link, []}, temporary, brutal_kill, worker, [rbuddy_slave_monitor]}
     ]}}.
 
-start_child(Host, Port) ->
-    supervisor:start_child(?MODULE, [Host, Port]).
+start_child({H1,P1}=Slave) when is_list(H1), is_integer(P1) ->
+    supervisor:start_child(?MODULE, [Slave]).

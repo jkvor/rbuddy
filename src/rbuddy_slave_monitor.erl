@@ -24,7 +24,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/2]).
+-export([start_link/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -34,22 +34,21 @@
          terminate/2,
          code_change/3]).
 
--record(state, {slave, socket, notify}).
+-record(state, {socket}).
 
 %%====================================================================
 %% API functions
 %%====================================================================
-start_link(Host, Port) ->
-    gen_server:start_link(?MODULE, [Host, Port], []).
+start_link(Slave) ->
+    gen_server:start_link(?MODULE, [Slave], []).
 
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
-init([Host, Port]) ->
-    {ApiHost, ApiPort} = get_notify_api(), 
+init([{Host, Port}]) ->
     case gen_tcp:connect(Host, Port, [binary, {packet, raw}, {active, false}]) of
         {ok, Socket} ->
-            {ok, #state{slave={Host, Port}, socket=Socket, notify={ApiHost, ApiPort}}, 0};
+            {ok, #state{socket=Socket}, 0};
         Error ->
             error_logger:error_report([?MODULE, ?LINE, Error]), 
             {stop, Error}
@@ -61,14 +60,15 @@ handle_call(_Msg, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(timeout, #state{slave=Slave, socket=Socket, notify=Notify}=State) ->
+%% TODO: fail after a certail number of tries
+handle_info(timeout, #state{socket=Socket}=State) ->
     case rbuddy_redis:info(Socket) of
         Info when is_list(Info) ->
             LinkStatus = proplists:get_value("master_link_status", Info),
             Syncing = proplists:get_value("master_sync_in_progress", Info),
             case [LinkStatus, Syncing] of
                 ["up", "0"] ->
-                    do_notify(Notify, Slave),
+                    rbuddy:complete_failover(),
                     {stop, normal, State};
                 _ ->
                     {noreply, State, 250}
@@ -92,25 +92,3 @@ code_change(_OldVsn, State, _Extra) ->
 %%====================================================================
 %% internal functions
 %%====================================================================
-do_notify({ApiHost, ApiPort}, {SlHost, SlPort}) ->
-    Url = lists:flatten(io_lib:format("http://~s:~w/failover", [ApiHost, ApiPort])),
-    Post = lists:flatten(io_lib:format("host=~s&port=~w", [SlHost, SlPort])),
-    error_logger:info_msg("POST ~s -> ~s~n", [Url, Post]),
-    CT = "application/x-www-form-urlencoded",
-    case httpc:request(post, {Url, [{"Content-Type", CT}], CT, Post}, [{timeout, 10000}], []) of
-        {ok, {{_, 200, _}, _, _}} ->
-            ok;
-        {ok, {{_, Status, _}, _, Body}} ->
-            error_logger:error_msg("HTTP failover request failed: status=~p body=~p", [Status, Body]);
-        Error ->
-            error_logger:error_report([?MODULE, ?LINE, Error])
-    end.
-
-get_notify_api() ->
-    case rbuddy_app:app_var(notify_api) of
-        {Host, Port} when is_list(Host), is_integer(Port) ->
-            {Host, Port};
-        Other ->
-            error_logger:error_msg("Could not read notify_api app var ~p~n", [Other]), 
-            exit(invalid_app_var)
-    end.

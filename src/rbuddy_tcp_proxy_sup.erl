@@ -23,7 +23,7 @@
 -module(rbuddy_tcp_proxy_sup).
 -behaviour(supervisor).
 
--export([start_link/0, init/1, start_child/5]).
+-export([start_link/0, init/1, start_child/2]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
@@ -33,8 +33,8 @@ init([]) ->
         {rbuddy_tcp_proxy, {rbuddy_tcp_proxy, start_link, []}, temporary, brutal_kill, worker, [rbuddy_tcp_proxy]}
     ]}}.
 
-start_child(Client, Listener, Slave, Standby, Master) ->
-    case supervisor:start_child(?MODULE, [Listener, Slave, Standby, Master]) of
+start_child(Client, Listener) ->
+    case supervisor:start_child(?MODULE, [Listener]) of
         {ok, Pid} ->
             gen_tcp:controlling_process(Client, Pid),
             ok = rbuddy_tcp_proxy:attach(Pid, Client),

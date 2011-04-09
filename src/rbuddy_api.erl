@@ -48,7 +48,7 @@ loop(Req) ->
     end.
 
 active(Req) ->
-    case rbuddy_tcp_listener:active_slave() of
+    case rbuddy:active() of
         {Host, Port} when is_list(Host), is_integer(Port) ->
             Req:respond({200, ?HDR, ["redis://", Host, ":", integer_to_list(Port), "/"]});
         _ ->
@@ -56,7 +56,7 @@ active(Req) ->
     end.
 
 standby(Req) ->
-    case rbuddy_tcp_listener:standby_slave() of
+    case rbuddy:standby() of
         {Host, Port} when is_list(Host), is_integer(Port) ->
             Req:respond({200, ?HDR, ["redis://", Host, ":", integer_to_list(Port), "/"]});
         _ ->
