@@ -3,7 +3,7 @@
   {description, "An Erlang proxy between redis master/slave"},
   {vsn, "0.1"},
   {registered, []},
-  {applications, [kernel, stdlib, sasl]},
+  {applications, [kernel, stdlib, sasl, inets]},
   {mod, {rbuddy_app, []}},
   {env, []}
  ]}.

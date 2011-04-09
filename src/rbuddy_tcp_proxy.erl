@@ -51,7 +51,6 @@ attach(Pid, Client) ->
 %% gen_server callbacks
 %%====================================================================
 init([Listener, Slave, Standby, {SHost, SPort}]) ->
-    process_flag(trap_exit, true),
     State = #state{
         listener=Listener,
         slave=Slave,
@@ -136,7 +135,17 @@ failover(#state{listener={LHost, LPort}, slave={SlHost, SlPort}, standby={StHost
     case send_cmd(SlHost, SlPort, rbuddy_redis_proto:slave_of("NO", "ONE")) of
         ok ->
             gen_tcp:close(Client),
-            send_cmd(StHost, StPort, rbuddy_redis_proto:slave_of(LHost, LPort));
+            case send_cmd(StHost, StPort, rbuddy_redis_proto:slave_of(LHost, LPort)) of
+                ok ->
+                    case rbuddy_slave_monitor_sup:start_child(StHost, StPort) of
+                        {ok, _Pid} ->
+                            ok;
+                        Error ->
+                            Error
+                    end;
+                Error ->
+                    Error
+            end;
         Error ->
             Error
     end.

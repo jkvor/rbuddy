@@ -23,5 +23,6 @@ start_link() ->
 init([]) ->
     {ok, {{one_for_one, 5, 10}, [
         {rbuddy_tcp_proxy_sup, {rbuddy_tcp_proxy_sup, start_link, []}, permanent, 5000, worker, [rbuddy_tcp_proxy_sup]},
+        {rbuddy_slave_monitor_sup, {rbuddy_slave_monitor_sup, start_link, []}, permanent, 5000, worker, [rbuddy_slave_monitor_sup]},
         {rbuddy_tcp_listener, {rbuddy_tcp_listener, start_link, []}, permanent, 5000, worker, [rbuddy_tcp_listener]}
     ]}}.
