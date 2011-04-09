@@ -1,0 +1,10 @@
+[{rbuddy,[
+  {master, {"localhost", 6379}}, %% rbuddy connects to master redis and proxies traffic to/from slaves
+  {slaves, [ %% redis slaves that rbuddy will manage
+    {"localhost", 6380},
+    {"localhost", 6381}
+  ]},
+  {rbuddy, {"127.0.0.1", 6382}}, %% host/port rbuddy will bind to
+  {rbuddy_api, {"localhost", 9999}}, %% rbuddy_api host/port
+  {notify_api, {"localhost", 8002}} %% api to notify of failover events
+]}].

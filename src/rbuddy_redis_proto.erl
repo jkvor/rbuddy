@@ -20,25 +20,15 @@
 %% WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 %% FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 %% OTHER DEALINGS IN THE SOFTWARE.
--module(rbuddy_tcp_proxy_sup).
--behaviour(supervisor).
+-module(rbuddy_redis_proto).
+-export([slave_of/2]).
 
--export([start_link/0, init/1, start_child/5]).
+slave_of(Host, Port) when is_list(Host), is_integer(Port) ->
+    slave_of(Host, integer_to_list(Port));
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-init([]) ->
-    {ok, {{simple_one_for_one, 0, 1}, [
-        {rbuddy_tcp_proxy, {rbuddy_tcp_proxy, start_link, []}, temporary, brutal_kill, worker, [rbuddy_tcp_proxy]}
-    ]}}.
-
-start_child(Client, Listener, Slave, Standby, Master) ->
-    case supervisor:start_child(?MODULE, [Listener, Slave, Standby, Master]) of
-        {ok, Pid} ->
-            gen_tcp:controlling_process(Client, Pid),
-            ok = rbuddy_tcp_proxy:attach(Pid, Client),
-            {ok, Pid};
-        Error ->
-            Error
-    end.
+slave_of(Host, Port) when is_list(Host), is_list(Port) ->
+    SizeHost = integer_to_list(length(Host)),
+    SizePort = integer_to_list(length(Port)),
+    iolist_to_binary([
+        "*3\r\n$7\r\nSLAVEOF\r\n$", SizeHost, "\r\n", Host, "\r\n$", SizePort, "\r\n", Port, "\r\n"
+    ]).

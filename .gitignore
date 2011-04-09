@@ -1,3 +1,6 @@
 ebin
 deps
 src/*.swp
+include/*.swp
+*.swp
+include/rbuddy.config

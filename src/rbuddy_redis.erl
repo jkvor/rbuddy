@@ -20,25 +20,20 @@
 %% WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 %% FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 %% OTHER DEALINGS IN THE SOFTWARE.
--module(rbuddy_tcp_proxy_sup).
--behaviour(supervisor).
+-module(rbuddy_redis).
+-export([ok_cmd/2]).
 
--export([start_link/0, init/1, start_child/5]).
-
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-init([]) ->
-    {ok, {{simple_one_for_one, 0, 1}, [
-        {rbuddy_tcp_proxy, {rbuddy_tcp_proxy, start_link, []}, temporary, brutal_kill, worker, [rbuddy_tcp_proxy]}
-    ]}}.
-
-start_child(Client, Listener, Slave, Standby, Master) ->
-    case supervisor:start_child(?MODULE, [Listener, Slave, Standby, Master]) of
-        {ok, Pid} ->
-            gen_tcp:controlling_process(Client, Pid),
-            ok = rbuddy_tcp_proxy:attach(Pid, Client),
-            {ok, Pid};
+ok_cmd(Sock, Cmd) ->
+    case gen_tcp:send(Sock, Cmd) of
+        ok ->
+            case gen_tcp:recv(Sock, 0) of
+                {ok, <<"+OK\r\n">>} ->
+                    ok;
+                Error ->
+                    error_logger:error_report([?MODULE, ?LINE, Error]),
+                    Error
+            end;
         Error ->
+            error_logger:error_report([?MODULE, ?LINE, Error]),
             Error
     end.

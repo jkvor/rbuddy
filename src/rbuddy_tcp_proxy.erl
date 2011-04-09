@@ -24,7 +24,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, attach/4]).
+-export([start_link/4, attach/2]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -34,37 +34,54 @@
          terminate/2,
          code_change/3]).
 
--record(state, {c_host, c_port, c_sock, s_host, s_port, s_sock}).
+-record(state, {listener, slave, standby,
+                s_host, s_port, s_sock,
+                c_host, c_port, c_sock}).
 
 %%====================================================================
 %% API functions
 %%====================================================================
-start_link() ->
-    gen_server:start_link(?MODULE, [], []).
+start_link(Listener, Slave, Standby, Master) ->
+    gen_server:start_link(?MODULE, [Listener, Slave, Standby, Master], []).
 
-attach(Pid, Sock, Host, Port) ->
-    gen_server:cast(Pid, {attach, Host, Port, Sock}).
+attach(Pid, Client) ->
+    gen_server:cast(Pid, {attach, Client}).
 
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
-init([]) ->
+init([Listener, Slave, Standby, {SHost, SPort}]) ->
     process_flag(trap_exit, true),
-    {ok, #state{}}.
+    State = #state{
+        listener=Listener,
+        slave=Slave,
+        standby=Standby,
+        s_host=SHost,
+        s_port=SPort
+    },
+    {ok, State}.
 
 handle_call(_Msg, _From, State) ->
     {reply, invalid_msg, State}.
 
-handle_cast({attach, SHost, SPort, Sock}, State) ->
-    {CHost, CPort} = rbuddy_tcp_utils:peerinfo(Sock),
-    {noreply, State#state{s_host=SHost,
-                          s_port=SPort,
-                          c_host=CHost,
+handle_cast({attach, Client}, State) ->
+    {CHost, CPort} = rbuddy_tcp_utils:peerinfo(Client),
+    {noreply, State#state{c_host=CHost,
                           c_port=CPort,
-                          c_sock=Sock}, 0};
+                          c_sock=Client}, 0};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+handle_info(timeout, #state{c_sock=Client, s_host=SHost, s_port=SPort}=State) ->
+    case gen_tcp:connect(SHost, SPort, [binary, {packet, raw}, {active, once}]) of
+        {ok, Server} ->
+            inet:setopts(Client, [{active, once}, binary]),
+            {noreply, State#state{s_sock=Server}};
+        Error ->
+            error_logger:error_msg("Failed to connect to server ip=~p port=~p error=~100p", [SHost, SPort, Error]),
+            {stop, normal, State}
+    end;
 
 handle_info({tcp, Client, Data}, #state{c_sock=Client, s_sock=Server}=State) ->
     gen_tcp:send(Server, Data),
@@ -76,21 +93,29 @@ handle_info({tcp, Server, Data}, #state{c_sock=Client, s_sock=Server}=State) ->
     inet:setopts(Server, [{active, once}]),
     {noreply, State};
 
-handle_info({tcp_closed, _}, State) ->
-    {stop, normal, State};
-
-handle_info({tcp_error, _ ,_}, State) ->
-    {stop, normal, State};
-
-handle_info(timeout, #state{c_sock=Client, s_host=SHost, s_port=SPort}=State) ->
-     case gen_tcp:connect(SHost, SPort, [binary, {packet, raw}, {active, once}]) of
-        {ok, Server} ->
-            inet:setopts(Client, [{active, once}, binary]),
-            {noreply, State#state{s_sock=Server}};
+handle_info({tcp_closed, Server}, #state{s_sock=Server}=State) ->
+    case failover(State) of
+        ok ->
+            {stop, normal, State};
         Error ->
-            error_logger:error_msg("Failed to connect to server ip=~p port=~p error=~100p", [SHost, SPort, Error]),
-            {stop, normal, State}
+            {stop, Error, State}
     end;
+
+handle_info({tcp_closed, Client}, #state{c_sock=Client}=State) ->
+    {stop, normal, State};
+
+handle_info({tcp_error, Server, Reason}, #state{s_sock=Server}=State) ->
+    error_logger:error_report([tcp_error, server, Reason]),
+    case failover(State) of
+        ok ->
+            {stop, normal, State};
+        Error ->
+            {stop, Error, State}
+    end;
+
+handle_info({tcp_error, Client, Reason}, #state{c_sock=Client}=State) ->
+    error_logger:error_report([tcp_error, client, Reason]),
+    {stop, normal, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -107,4 +132,25 @@ code_change(_OldVsn, State, _Extra) ->
 %%====================================================================
 %% internal functions
 %%====================================================================
+failover(#state{listener={LHost, LPort}, slave={SlHost, SlPort}, standby={StHost, StPort}, c_sock=Client}) ->
+    case send_cmd(SlHost, SlPort, rbuddy_redis_proto:slave_of("NO", "ONE")) of
+        ok ->
+            gen_tcp:close(Client),
+            send_cmd(StHost, StPort, rbuddy_redis_proto:slave_of(LHost, LPort));
+        Error ->
+            Error
+    end.
 
+send_cmd(Host, Port, Cmd) ->
+    case gen_tcp:connect(Host, Port, [binary, {packet, raw}, {active, false}]) of
+        {ok, Socket} ->
+            case rbuddy_redis:ok_cmd(Socket, Cmd) of
+                ok ->
+                    gen_tcp:close(Socket),
+                    ok;
+                Error ->
+                    Error 
+            end;
+        Error ->
+            Error
+    end.
