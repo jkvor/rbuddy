@@ -24,7 +24,7 @@
 -behaviour(gen_nb_server).
 
 %% API
--export([start_link/0]).
+-export([start_link/0, active_slave/0, standby_slave/0]).
 
 %% gen_server callbacks
 -export([init/2,
@@ -43,6 +43,12 @@
 %%====================================================================
 start_link() ->
     gen_nb_server:start_link({local, ?MODULE}, ?MODULE, []).
+
+active_slave() ->
+    gen_server:call(?MODULE, active_slave, 10000).
+
+standby_slave() ->
+    gen_server:call(?MODULE, standby_slave, 10000).
 
 %%====================================================================
 %% gen_server callbacks
@@ -69,6 +75,14 @@ new_connection(_Host, _Port, Client, State) ->
             gen_tcp:close(Client)
     end, 
     {ok, State}.
+
+handle_call(active_slave, _From, State) ->
+    MyState = gen_nb_server:get_cb_state(State),
+    {reply, MyState#state.slave, State};
+
+handle_call(standby_slave, _From, State) ->
+    MyState = gen_nb_server:get_cb_state(State),
+    {reply, MyState#state.standby, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ignore, State}.

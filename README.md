@@ -36,5 +36,6 @@
     $ cp include/rbuddy.config.example include/rbuddy.config
     $ erl -pa ebin deps/*/ebin -config include/rbuddy
     1> application:start(sasl).
-    2> application:start(rbuddy).
+    2> application:start(inets).
+    3> application:start(rbuddy).
 
