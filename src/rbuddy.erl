@@ -25,8 +25,7 @@
 
 %% API
 -export([start_link/0, active/0, standby/0, master/0,
-         issue_slave_of_cmd/0, start_failover/0,
-         complete_failover/0, update_status/1]).
+         start_failover/0, complete_failover/0, update_status/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -55,9 +54,6 @@ standby() ->
 master() ->
     gen_server:call(?MODULE, master, ?TIMEOUT).
 
-issue_slave_of_cmd() ->
-    gen_server:cast(?MODULE, issue_slave_of_cmd).
-
 start_failover() ->
     gen_server:call(?MODULE, start_failover, ?TIMEOUT).
 
@@ -78,7 +74,7 @@ init([]) ->
                 active=Active,
                 standby=Standby,
                 master=Master,
-                status=starting}}.
+                status=starting}, 0}.
 
 handle_call(active, _From, #state{active=Active}=State) ->
     {reply, Active, State};
@@ -90,53 +86,34 @@ handle_call(master, _From, #state{master=Master}=State) ->
     {reply, Master, State};
 
 handle_call(start_failover, _From, #state{listener=Listener, active=Active, standby=Standby}=State) ->
-    case send_cmd(Active, rbuddy_redis_proto:slave_of("NO", "ONE")) of
+    case start_failover(Listener, Active, Standby) of
         ok ->
-            {LHost, LPort} = Listener,
-            case send_cmd(Standby, rbuddy_redis_proto:slave_of(LHost, LPort)) of
-                ok ->
-                    case rbuddy_slave_monitor_sup:start_child(Standby) of
-                        {ok, _Pid} ->
-                            {reply, ok, State#state{status=failing_over}};
-                        Error ->
-                            {stop, Error, State}
-                    end;
-                Error ->
-                    {stop, Error, State} 
-            end;
+            {reply, ok, State#state{status=failing_over}};
         Error ->
             {stop, Error, State}
     end;
 
 handle_call(complete_failover, _From, #state{active=Active, standby=Standby}=State) ->
-    Notify = get_notify_api(),
-    do_notify(Notify, Standby),
+    do_notify(Standby),
+    write_slaves_manifest(Standby, Active),
     {reply, ok, State#state{active=Standby, standby=Active, status=up}};
     
 handle_call(_Msg, _From, State) ->
     {reply, invalid_msg, State}.
-
-handle_cast(issue_slave_of_cmd, State) ->
-    {LHost, LPort} = State#state.listener,
-    {Host, Port} = State#state.active, 
-    case gen_tcp:connect(Host, Port, [binary, {packet, raw}, {active, false}]) of
-        {ok, Socket} ->
-            case rbuddy_redis:ok_cmd(Socket, rbuddy_redis_proto:slave_of(LHost, LPort)) of
-                ok ->
-                    gen_tcp:close(Socket),
-                    {noreply, State#state{status=up}};
-                Error ->
-                    {stop, Error, State}
-            end;
-        Error ->
-            {stop, Error, State}
-    end;
 
 handle_cast({status, Status}, State) ->
     {noreply, State#state{status=Status}};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+handle_info(timeout, #state{listener=Listener, active=Active, standby=Standby}=State) ->
+    case start_failover(Listener, Active, Standby) of
+        ok ->
+            {noreply, State#state{status=failing_over}};
+        Error ->
+            {stop, Error, State}
+    end;
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -154,13 +131,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% internal functions
 %%====================================================================
 get_slaves() ->
-    case rbuddy_app:app_var(slaves) of
-        [{H1,P1},{H2,P2}] when is_list(H1), is_integer(P1), is_list(H2), is_integer(P2) ->
+    case file:consult(get_slaves_manifest()) of
+        {ok, [{H1,P1},{H2,P2}]} when is_list(H1), is_integer(P1), is_list(H2), is_integer(P2) ->
             [{H1, P1}, {H2, P2}];
         Other ->
-            error_logger:error_msg("Could not read slaves app var ~p~n", [Other]), 
-            exit(invalid_app_var)
+            error_logger:error_msg("Could not read slaves.manifest ~p~n", [Other]), 
+            exit(invalid_slaves_manifest)
     end.
+
+get_slaves_manifest() ->
+    filename:join("priv", "slaves.manifest").
 
 get_master() ->
     case rbuddy_app:app_var(master) of
@@ -172,7 +152,7 @@ get_master() ->
     end.
 
 get_listener() ->
-    case rbuddy_app:app_var(rbuddy) of
+    case rbuddy_app:app_var(listener) of
         {Host, Port} when is_list(Host), is_integer(Port) ->
             {Host, Port};
         Other ->
@@ -189,6 +169,28 @@ get_notify_api() ->
             exit(invalid_app_var)
     end.
 
+start_failover(Listener, Active, Standby) ->
+    error_logger:info_msg("Start failover~n"),
+    case send_cmd(Active, rbuddy_redis_proto:slave_of("NO", "ONE")) of
+        ok ->
+            error_logger:info_msg("Set ~p -> NO ONE~n", [Active]),
+            {LHost, LPort} = Listener,
+            case send_cmd(Standby, rbuddy_redis_proto:slave_of(LHost, LPort)) of
+                ok ->
+                    error_logger:info_msg("Set ~p -> ~p ~p~n", [Standby, LHost, LPort]),
+                    case rbuddy_slave_monitor_sup:start_child(Standby) of
+                        {ok, _Pid} ->
+                            ok;
+                        Error ->
+                            Error
+                    end;
+                Error ->
+                    Error
+            end;
+        Error ->
+            Error
+    end.
+
 send_cmd({Host, Port}, Cmd) ->
     case gen_tcp:connect(Host, Port, [binary, {packet, raw}, {active, false}]) of
         {ok, Socket} ->
@@ -203,7 +205,8 @@ send_cmd({Host, Port}, Cmd) ->
             Error
     end.
 
-do_notify({ApiHost, ApiPort}, {SlHost, SlPort}) ->
+do_notify({SlHost, SlPort}) ->
+    {ApiHost, ApiPort} = get_notify_api(),
     Url = lists:flatten(io_lib:format("http://~s:~w/failover", [ApiHost, ApiPort])),
     Post = lists:flatten(io_lib:format("host=~s&port=~w", [SlHost, SlPort])),
     error_logger:info_msg("POST ~s -> ~s~n", [Url, Post]),
@@ -216,3 +219,12 @@ do_notify({ApiHost, ApiPort}, {SlHost, SlPort}) ->
         Error ->
             error_logger:error_report([?MODULE, ?LINE, Error])
     end.
+
+write_slaves_manifest(Standby, Active) ->
+    Manifest = get_slaves_manifest(),
+    error_logger:info_msg("Write ~p~n", [Manifest]),
+    {ok, FD} = file:open(Manifest, [write]),
+    io:format(FD, "~p.~n", [Standby]),
+    io:format(FD, "~p.~n", [Active]),
+    file:close(FD).
+    

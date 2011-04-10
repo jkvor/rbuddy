@@ -1,6 +1,8 @@
 ebin
 deps
 src/*.swp
-include/*.swp
+priv/*.swp
 *.swp
-include/rbuddy.config
+erl_crash.dump
+priv/rbuddy.config
+priv/slaves.manifest

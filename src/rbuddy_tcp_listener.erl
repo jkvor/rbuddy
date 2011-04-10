@@ -79,7 +79,6 @@ handle_info(timeout, State) ->
     case gen_nb_server:add_listen_socket({Host, Port}, State) of
         {ok, State1} ->
             error_logger:info_msg("Listening on ~s:~w~n", [Host, Port]),
-            rbuddy:issue_slave_of_cmd(),
             {noreply, State1};
         Error ->
             {stop, Error, State}
@@ -98,7 +97,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% internal functions
 %%====================================================================
 get_listener() ->
-    case rbuddy_app:app_var(rbuddy) of
+    case rbuddy_app:app_var(listener) of
         {Host, Port} when is_list(Host), is_integer(Port) ->
             {Host, Port};
         Other ->

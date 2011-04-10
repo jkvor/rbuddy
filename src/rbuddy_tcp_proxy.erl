@@ -58,7 +58,7 @@ handle_call(_Msg, _From, State) ->
 
 handle_cast({attach, Client}, State) ->
     {CHost, CPort} = rbuddy_tcp_utils:peerinfo(Client),
-    error_logger:info_msg("Accepted new connection ~100s:~w~n", [CHost, CPort]),
+    error_logger:info_msg("Accepted new connection ~p:~w~n", [CHost, CPort]),
     {noreply, State#state{c_host=CHost,
                           c_port=CPort,
                           c_sock=Client}, 0};
@@ -70,11 +70,11 @@ handle_info(timeout, #state{c_sock=Client}=State) ->
     {SHost, SPort} = rbuddy:master(),
     case gen_tcp:connect(SHost, SPort, [binary, {packet, raw}, {active, once}]) of
         {ok, Server} ->
-            error_logger:info_msg("Established connection to master ~100s:~w~n", [SHost, SPort]),
+            error_logger:info_msg("Established connection to master ~s:~w~n", [SHost, SPort]),
             inet:setopts(Client, [{active, once}, binary]),
             {noreply, State#state{s_sock=Server}};
         Error ->
-            error_logger:error_msg("Failed to connect to server ip=~p port=~p error=~100p", [SHost, SPort, Error]),
+            error_logger:error_msg("Failed to connect to server ~p:~w ~100p~n", [SHost, SPort, Error]),
             {stop, normal, State}
     end;
 

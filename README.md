@@ -33,7 +33,8 @@
 
 ## Run
 
-    $ cp include/rbuddy.config.example include/rbuddy.config
+    $ cp priv/rbuddy.config.example priv/rbuddy.config
+    $ cp priv/slaves.manifest.example priv/slaves.manifest
     $ erl -pa ebin deps/*/ebin -config include/rbuddy
     1> application:start(sasl).
     2> application:start(inets).
