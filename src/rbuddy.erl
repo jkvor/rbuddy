@@ -211,7 +211,7 @@ do_notify({SlHost, SlPort}) ->
     Post = lists:flatten(io_lib:format("host=~s&port=~w", [SlHost, SlPort])),
     error_logger:info_msg("POST ~s -> ~s~n", [Url, Post]),
     CT = "application/x-www-form-urlencoded",
-    case httpc:request(post, {Url, [{"Content-Type", CT}], CT, Post}, [{timeout, 10000}], []) of
+    case httpc:request(post, {Url, [{"Content-Type", CT}], CT, Post}, [{timeout, 2000}], []) of
         {ok, {{_, 200, _}, _, _}} ->
             ok;
         {ok, {{_, Status, _}, _, Body}} ->
