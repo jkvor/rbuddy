@@ -1,6 +1,13 @@
-[{rbuddy,[
-  {master, {"localhost", 6379}}, %% rbuddy connects to master redis and proxies traffic to/from slaves
-  {listener, {"127.0.0.1", 6382}}, %% host/port rbuddy will bind to
-  {rbuddy_api, {"127.0.0.1", 9999}}, %% rbuddy_api host/port
-  {notify_api, {"localhost", 8002}} %% api to notify of failover events
-]}].
+[
+
+{rbuddy, [
+  {slave, {"localhost", 6378}},
+  {master, {"localhost", 6379}},
+  {listener, {"127.0.0.1", 6377}}
+]},
+
+{pagerduty, [
+  {service_key, "FOO"}
+]}
+
+].

@@ -89,7 +89,7 @@ handle_info({tcp, Server, Data}, #state{c_sock=Client, s_sock=Server}=State) ->
     {noreply, State};
 
 handle_info({tcp_closed, Server}, #state{c_sock=Client, s_sock=Server}=State) ->
-    case rbuddy:start_failover() of
+    case rbuddy:readonly_mode() of
         ok ->
             gen_tcp:close(Client),
             {stop, normal, State};
@@ -102,7 +102,7 @@ handle_info({tcp_closed, Client}, #state{c_sock=Client}=State) ->
 
 handle_info({tcp_error, Server, Reason}, #state{c_sock=Client, s_sock=Server}=State) ->
     error_logger:error_report([tcp_error, server, Reason]),
-    case rbuddy:start_failover() of
+    case rbuddy:readonly_mode() of
         ok ->
             gen_tcp:close(Client),
             {stop, normal, State};
